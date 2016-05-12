@@ -1,0 +1,6 @@
+TYPO3:
+  Neos:
+    userInterface:
+      translation:
+        autoInclude:
+          'ElementareTeilchen.Neos.ExternalRedirect': ['NodeTypes/*']

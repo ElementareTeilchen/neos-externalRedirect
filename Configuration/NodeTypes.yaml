@@ -1,0 +1,6 @@
+#
+# Add mixins; add field for redirect URLs to the inspector
+#
+'ElementareTeilchen.MaTumDe:Page':
+  superTypes:
+    'ElementareTeilchen.Neos.ExternalRedirect:RedirectUrlsMixin': TRUE
