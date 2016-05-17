@@ -81,7 +81,7 @@ class ExternalUrlRedirectService extends \Neos\RedirectHandler\NeosAdapter\Servi
             }
 
             if ($this->redirectStorage->getOneBySourceUriPathAndHost($urlPathOnly)) {
-                // todo: check if set on other page and warning to editor?
+                // todo: check if set on other page / with other target and warning to editor?
 
                 // if from this page, just do nothing
                 continue;
