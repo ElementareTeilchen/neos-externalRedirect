@@ -2,10 +2,8 @@
 <xliff xmlns="urn:oasis:names:tc:xliff:document:1.2" version="1.2">
   <file original="" product-name="ElementareTeilchen.Neos.ExternalRedirect" source-language="de" datatype="plaintext">
     <body>
-      <trans-unit id="groups.externalredirect" xml:space="preserve">
-			<source>externe Weiterleitungen</source></trans-unit>
-      <trans-unit id="properties.redirectUrls" xml:space="preserve">
-			<source>URLs aus dem alten System</source></trans-unit>
+      <trans-unit id="tabs.redirect" xml:space="preserve">
+			<source>Weiterleitungen</source></trans-unit>
     </body>
   </file>
 </xliff>
