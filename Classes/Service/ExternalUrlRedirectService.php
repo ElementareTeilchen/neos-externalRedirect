@@ -38,7 +38,6 @@ class ExternalUrlRedirectService extends \Neos\RedirectHandler\NeosAdapter\Servi
      */
     public function createRedirectsForPublishedNode(NodeInterface $node, Workspace $targetWorkspace)
     {
-        $this->systemLogger->log('22'.$node->getProperty('redirectUrls'));
         $nodeType = $node->getNodeType();
 
         // only act if a Document node is published to live workspace
@@ -52,9 +51,13 @@ class ExternalUrlRedirectService extends \Neos\RedirectHandler\NeosAdapter\Servi
             'dimensions' => $node->getDimensions()
         ]);
         $targetNode = $context->getNodeByIdentifier($node->getIdentifier());
+        if ($targetNode === null) {
+            // The page has been newly added, then we dont have targetNodeUriPath
+            // todo: is it important to be able to save external redirects on page creation?
+            return;
+        }
 
-        //compare if redirect field has changed
-        //todo: is this correct??
+        //only keep going if redirect field has changed
         if ($node->getProperty('redirectUrls') == $targetNode->getProperty('redirectUrls')) {
             return;
         }
@@ -65,18 +68,25 @@ class ExternalUrlRedirectService extends \Neos\RedirectHandler\NeosAdapter\Servi
 
         $hosts = $this->getHostPatterns($node->getContext());
 
-        // The page has been removed
-        if ($node->isRemoved()) {
-            // todo remove old external redirects from redirect table
-            #$this->redirectStorage->addRedirect($targetNodeUriPath, '', $statusCode, $hosts);
-            return;
-        }
-
-
         $this->flushRoutingCacheForNode($targetNode);
         $statusCode = (integer)$this->defaultStatusCode['redirect'];
-        foreach (explode('\n',$node->getProperty('redirectUrls')) as $redirectUrl) {
-            $this->redirectStorage->addRedirect($targetNodeUriPath, trim($redirectUrl), $statusCode, $hosts);
+        // split by any whitespace
+        $redirectUrlsArray = preg_split('/\s+/', $node->getProperty('redirectUrls'));
+        foreach ($redirectUrlsArray as $redirectUrl) {
+            $urlPathOnly = parse_url(trim($redirectUrl),PHP_URL_PATH);
+
+            if ($node->isRemoved()) {
+                $this->redirectStorage->removeOneBySourceUriPathAndHost($urlPathOnly, $hosts);
+                continue;
+            }
+
+            if ($this->redirectStorage->getOneBySourceUriPathAndHost($urlPathOnly)) {
+                // todo: check if set on other page and warning to editor?
+
+                // if from this page, just do nothing
+                continue;
+            }
+            $this->redirectStorage->addRedirect($urlPathOnly, $targetNodeUriPath, $statusCode, $hosts);
         }
 
     }

@@ -6,8 +6,8 @@
         "neos/redirecthandler-neosadapter": "^1.0"
     },
     "autoload": {
-        "psr-0": {
-            "ElementareTeilchen\\Neos\\ExternalRedirect": "Classes/"
+        "psr-4": {
+            "ElementareTeilchen\\Neos\\ExternalRedirect\\": "Classes"
         }
     },
     "extra": {
