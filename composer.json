@@ -3,7 +3,8 @@
     "type": "neos-package",
     "name": "elementareteilchen/neos-externalredirect",
     "require": {
-        "neos/redirecthandler-neosadapter": "^1.0"
+        "neos/redirecthandler-neosadapter": "^1.0",
+        "neos/redirecthandler-databasestorage": "^1.0.0"
     },
     "autoload": {
         "psr-4": {
