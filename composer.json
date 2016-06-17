@@ -1,7 +1,8 @@
 {
-    "description": "",
-    "type": "neos-package",
     "name": "elementareteilchen/neos-externalredirect",
+    "type": "neos-package",
+    "description": "",
+    "license": "GPL-3.0+",
     "require": {
         "neos/redirecthandler-neosadapter": "^1.0",
         "neos/redirecthandler-databasestorage": "^1.0.0"
@@ -9,11 +10,6 @@
     "autoload": {
         "psr-4": {
             "ElementareTeilchen\\Neos\\ExternalRedirect\\": "Classes"
-        }
-    },
-    "extra": {
-        "neos": {
-            "package-key": "ElementareTeilchen.Neos.ExternalRedirect"
         }
     }
 }

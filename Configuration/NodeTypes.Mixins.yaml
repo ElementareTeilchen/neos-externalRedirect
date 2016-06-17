@@ -3,14 +3,6 @@
 #
 'ElementareTeilchen.Neos.ExternalRedirect:RedirectUrlsMixin':
   abstract: TRUE
-  ui:
-    inspector:
-      groups:
-        externalredirect:
-          label: i18n
-          icon: 'icon-arrow-circle-right'
-          position: 200
-          tab: redirect
   properties:
     redirectUrls:
       type: string
@@ -24,3 +16,11 @@
           editorOptions:
             placeholder: 'all urls like /Studium/StudienBeratung which should redirect to this page. One URL per line.'
             rows: 5
+  ui:
+    inspector:
+      groups:
+        externalredirect:
+          label: i18n
+          icon: 'icon-arrow-circle-right'
+          position: 200
+          tab: redirect
