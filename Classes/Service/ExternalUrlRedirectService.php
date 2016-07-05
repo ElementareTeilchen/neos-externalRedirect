@@ -14,6 +14,7 @@ namespace ElementareTeilchen\Neos\ExternalRedirect\Service;
  */
 
 use TYPO3\Flow\Annotations as Flow;
+use TYPO3\Flow\I18n\Translator;
 use TYPO3\Neos\Routing\Exception;
 use TYPO3\TYPO3CR\Domain\Model\NodeInterface;
 use TYPO3\TYPO3CR\Domain\Model\Workspace;
@@ -27,6 +28,12 @@ use TYPO3\TYPO3CR\Domain\Model\Workspace;
  */
 class ExternalUrlRedirectService extends \Neos\RedirectHandler\NeosAdapter\Service\NodeRedirectService
 {
+    /**
+     * @Flow\Inject
+     * @var Translator
+     */
+    protected $translator;
+
     /**
      * this slot is called after the very similar slot in Neos.RedirectHandler.NeosAdapter
      * we deliberately depend on that package, which does already lots of stuff needed (like clearing redirect cache)
@@ -73,20 +80,39 @@ class ExternalUrlRedirectService extends \Neos\RedirectHandler\NeosAdapter\Servi
         // split by any whitespace
         $redirectUrlsArray = preg_split('/\s+/', $node->getProperty('redirectUrls'));
         foreach ($redirectUrlsArray as $redirectUrl) {
-            $urlPathOnly = parse_url(trim($redirectUrl),PHP_URL_PATH);
+            $urlPathOnly = parse_url(trim($redirectUrl), PHP_URL_PATH);
 
             if ($node->isRemoved()) {
-                $this->redirectStorage->removeOneBySourceUriPathAndHost($urlPathOnly, $hosts);
+                foreach ($hosts as $host) {
+                    $this->redirectStorage->removeOneBySourceUriPathAndHost($urlPathOnly, $host);
+                }
                 continue;
             }
 
-            if ($this->redirectStorage->getOneBySourceUriPathAndHost($urlPathOnly)) {
-                // todo: check if set on other page / with other target and warning to editor?
-
-                // if from this page, just do nothing
-                continue;
+            $shouldAddRedirect = false;
+            if ($hosts === []) {
+                $hosts[] = null;
             }
-            $this->redirectStorage->addRedirect($urlPathOnly, $targetNodeUriPath, $statusCode, $hosts);
+            $hostsToAddRedirectTo = [];
+            foreach ($hosts as $host) {
+                $existingRedirect = $this->redirectStorage->getOneBySourceUriPathAndHost($urlPathOnly, $host, false);
+                if ($existingRedirect === null) {
+                    $shouldAddRedirect = true;
+                    if ($host !== null) {
+                        $hostsToAddRedirectTo[] = $host;
+                    }
+                } elseif (trim($existingRedirect->getTargetUriPath(), '/') !== trim($targetNodeUriPath, '/')) {
+                    throw new Exception($this->translator->translateById('exception.redirectExists', [
+                        'source' => $urlPathOnly,
+                        'newTarget' => $targetNodeUriPath,
+                        'existingTarget' => $existingRedirect->getTargetUriPath()
+                    ], null, null, 'Main', 'ElementareTeilchen.Neos.ExternalRedirect'), 201607051029);
+                }
+            }
+
+            if ($shouldAddRedirect) {
+                $this->redirectStorage->addRedirect($urlPathOnly, $targetNodeUriPath, $statusCode, $hostsToAddRedirectTo);
+            }
         }
 
     }
