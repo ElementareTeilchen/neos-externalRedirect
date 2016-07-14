@@ -74,11 +74,27 @@ class ExternalUrlRedirectService extends \Neos\RedirectHandler\NeosAdapter\Servi
         }
 
         $hosts = $this->getHostPatterns($node->getContext());
+        if ($hosts === []) {
+            $hosts[] = null;
+        }
 
         $this->flushRoutingCacheForNode($targetNode);
         $statusCode = (integer)$this->defaultStatusCode['redirect'];
         // split by any whitespace
+        $redirectUrlsArrayOld = preg_split('/\s+/', $targetNode->getProperty('redirectUrls'));
         $redirectUrlsArray = preg_split('/\s+/', $node->getProperty('redirectUrls'));
+        $removedUrls = array_diff($redirectUrlsArrayOld, $redirectUrlsArray);
+
+
+        // first remove all urls which have been set earlier, but not any more -> were removed by editor just now
+        foreach ($removedUrls as $redirectUrl) {
+            $urlPathOnly = parse_url(trim($redirectUrl), PHP_URL_PATH);
+            foreach ($hosts as $host) {
+                $this->redirectStorage->removeOneBySourceUriPathAndHost($urlPathOnly, $host);
+            }
+        }
+
+        // check/add the current urls
         foreach ($redirectUrlsArray as $redirectUrl) {
             $urlPathOnly = parse_url(trim($redirectUrl), PHP_URL_PATH);
 
@@ -90,9 +106,6 @@ class ExternalUrlRedirectService extends \Neos\RedirectHandler\NeosAdapter\Servi
             }
 
             $shouldAddRedirect = false;
-            if ($hosts === []) {
-                $hosts[] = null;
-            }
             $hostsToAddRedirectTo = [];
             foreach ($hosts as $host) {
                 $existingRedirect = $this->redirectStorage->getOneBySourceUriPathAndHost($urlPathOnly, $host, false);
@@ -102,11 +115,13 @@ class ExternalUrlRedirectService extends \Neos\RedirectHandler\NeosAdapter\Servi
                         $hostsToAddRedirectTo[] = $host;
                     }
                 } elseif (trim($existingRedirect->getTargetUriPath(), '/') !== trim($targetNodeUriPath, '/')) {
+                    /* TODO: we need Info to be visible in production context
                     throw new Exception($this->translator->translateById('exception.redirectExists', [
                         'source' => $urlPathOnly,
                         'newTarget' => $targetNodeUriPath,
                         'existingTarget' => $existingRedirect->getTargetUriPath()
                     ], null, null, 'Main', 'ElementareTeilchen.Neos.ExternalRedirect'), 201607051029);
+                    */
                 }
             }
 
