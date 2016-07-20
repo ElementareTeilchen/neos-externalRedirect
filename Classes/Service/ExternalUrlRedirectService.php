@@ -96,6 +96,9 @@ class ExternalUrlRedirectService extends \Neos\RedirectHandler\NeosAdapter\Servi
 
         // check/add the current urls
         foreach ($redirectUrlsArray as $redirectUrl) {
+            if ($redirectUrl === '') {
+                continue;
+            }
             $urlPathOnly = parse_url(trim($redirectUrl), PHP_URL_PATH);
 
             if ($node->isRemoved()) {
