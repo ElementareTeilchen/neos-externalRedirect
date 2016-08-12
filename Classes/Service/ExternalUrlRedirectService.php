@@ -13,9 +13,9 @@ namespace ElementareTeilchen\Neos\ExternalRedirect\Service;
  * source code.
  */
 
+use ElementareTeilchen\Neos\ExternalRedirect\DuplicateRedirectException;
 use TYPO3\Flow\Annotations as Flow;
 use TYPO3\Flow\I18n\Translator;
-use TYPO3\Neos\Routing\Exception;
 use TYPO3\TYPO3CR\Domain\Model\NodeInterface;
 use TYPO3\TYPO3CR\Domain\Model\Workspace;
 
@@ -118,8 +118,11 @@ class ExternalUrlRedirectService extends \Neos\RedirectHandler\NeosAdapter\Servi
                         $hostsToAddRedirectTo[] = $host;
                     }
                 } elseif (trim($existingRedirect->getTargetUriPath(), '/') !== trim($targetNodeUriPath, '/')) {
-                    /* TODO: we need Info to be visible in production context
-                    throw new Exception($this->translator->translateById('exception.redirectExists', [
+                    // TODO: we need the exception message to be visible in production context to show editors what's wrong
+                    // http://flowframework.readthedocs.io/en/stable/TheDefinitiveGuide/PartIII/ErrorAndExceptionHandling.html
+                    // skip exception for now
+                    /*
+                    throw new DuplicateRedirectException($this->translator->translateById('exception.redirectExists', [
                         'source' => $urlPathOnly,
                         'newTarget' => $targetNodeUriPath,
                         'existingTarget' => $existingRedirect->getTargetUriPath()
