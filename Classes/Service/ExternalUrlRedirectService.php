@@ -6,7 +6,7 @@ namespace ElementareTeilchen\Neos\ExternalRedirect\Service;
  * Inspired, copied and modified from Neos.RedirectHandler.NeosAdapter.
  * Thanks to Dominique Feyer!
  *
- * (c) Contributors of the Neos Project - www.neos.io
+ * (c) elementare teilchen GmbH - www.elementare-teilchen.de
  *
  * This package is Open Source Software. For the full copyright and license
  * information, please view the LICENSE file which was distributed with this
