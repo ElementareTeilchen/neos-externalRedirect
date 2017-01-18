@@ -1,13 +1,14 @@
 #
 # Add mixins; add field for redirect URLs to the inspector
 #
-'TYPO3.Neos:Document':
+
+'Neos.Neos:Document':
   superTypes:
-    'ElementareTeilchen.Neos.ExternalRedirect:RedirectUrlsMixin': TRUE
+    'ElementareTeilchen.Neos.ExternalRedirect:RedirectUrlsMixin': true
   ui:
     inspector:
       tabs:
         redirect:
           label: 'ElementareTeilchen.Neos.ExternalRedirect:NodeTypes.Page:tabs.redirect'
           position: 50
-          icon: 'icon-arrow-circle-right'
+          icon: icon-arrow-circle-right

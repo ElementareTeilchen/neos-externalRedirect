@@ -13,11 +13,13 @@ namespace ElementareTeilchen\Neos\ExternalRedirect\Service;
  * source code.
  */
 
-use ElementareTeilchen\Neos\ExternalRedirect\DuplicateRedirectException;
-use TYPO3\Flow\Annotations as Flow;
-use TYPO3\Flow\I18n\Translator;
-use TYPO3\TYPO3CR\Domain\Model\NodeInterface;
-use TYPO3\TYPO3CR\Domain\Model\Workspace;
+//use ElementareTeilchen\Neos\ExternalRedirect\DuplicateRedirectException;
+use Neos\ContentRepository\Domain\Model\NodeInterface;
+use Neos\ContentRepository\Domain\Model\Workspace;
+use Neos\Flow\Annotations as Flow;
+use Neos\Flow\I18n\Translator;
+use Neos\Flow\Mvc\Exception\NoMatchingRouteException;
+use Neos\RedirectHandler\NeosAdapter\Service\NodeRedirectService;
 
 /**
  * Service that creates redirects for given external urls in inspector field in nodes to the node in which the external url is saved.
@@ -26,7 +28,7 @@ use TYPO3\TYPO3CR\Domain\Model\Workspace;
  *
  * @Flow\Scope("singleton")
  */
-class ExternalUrlRedirectService extends \Neos\RedirectHandler\NeosAdapter\Service\NodeRedirectService
+class ExternalUrlRedirectService extends NodeRedirectService
 {
     /**
      * @Flow\Inject
@@ -41,14 +43,14 @@ class ExternalUrlRedirectService extends \Neos\RedirectHandler\NeosAdapter\Servi
 
      * @param NodeInterface $node
      * @param Workspace $targetWorkspace
-     * @throws Exception
+     * @throws NoMatchingRouteException
      */
     public function createRedirectsForPublishedNode(NodeInterface $node, Workspace $targetWorkspace)
     {
         $nodeType = $node->getNodeType();
 
         // only act if a Document node is published to live workspace
-        if ($targetWorkspace->getName() !== 'live' || !$nodeType->isOfType('TYPO3.Neos:Document')) {
+        if ($targetWorkspace->getName() !== 'live' || !$nodeType->isOfType('Neos.Neos:Document')) {
             return;
         }
 
@@ -64,16 +66,19 @@ class ExternalUrlRedirectService extends \Neos\RedirectHandler\NeosAdapter\Servi
             return;
         }
 
+        $nodeRedirectUrls = $node->getProperty('redirectUrls');
+        $targetNodeRedirectUrls = $targetNode->getProperty('redirectUrls');
         //only keep going if redirect field has changed
-        if ($node->getProperty('redirectUrls') == $targetNode->getProperty('redirectUrls')) {
+        if ($nodeRedirectUrls === $targetNodeRedirectUrls) {
             return;
         }
+
         $targetNodeUriPath = $this->buildUriPathForNodeContextPath($targetNode->getContextPath());
         if ($targetNodeUriPath === null) {
-            throw new Exception('The target URI path of the node could not be resolved', 1451945358);
+            throw new NoMatchingRouteException('The target URI path of the node could not be resolved', 1451945358);
         }
 
-        $hosts = $this->getHostPatterns($node->getContext());
+        $hosts = $this->getHostnames($node->getContext());
         if ($hosts === []) {
             $hosts[] = null;
         }
@@ -81,8 +86,8 @@ class ExternalUrlRedirectService extends \Neos\RedirectHandler\NeosAdapter\Servi
         $this->flushRoutingCacheForNode($targetNode);
         $statusCode = (integer)$this->defaultStatusCode['redirect'];
         // split by any whitespace
-        $redirectUrlsArrayOld = preg_split('/\s+/', $targetNode->getProperty('redirectUrls'));
-        $redirectUrlsArray = preg_split('/\s+/', $node->getProperty('redirectUrls'));
+        $redirectUrlsArrayOld = preg_split('/\s+/', $targetNodeRedirectUrls);
+        $redirectUrlsArray = preg_split('/\s+/', $nodeRedirectUrls);
         $removedUrls = array_diff($redirectUrlsArrayOld, $redirectUrlsArray);
 
 
@@ -135,6 +140,5 @@ class ExternalUrlRedirectService extends \Neos\RedirectHandler\NeosAdapter\Servi
                 $this->redirectStorage->addRedirect($urlPathOnly, $targetNodeUriPath, $statusCode, $hostsToAddRedirectTo);
             }
         }
-
     }
 }

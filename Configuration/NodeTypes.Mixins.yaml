@@ -12,7 +12,7 @@
         inspector:
           group: 'externalredirect'
           position: 100
-          editor: 'TYPO3.Neos/Inspector/Editors/TextAreaEditor'
+          editor: 'Neos.Neos/Inspector/Editors/TextAreaEditor'
           editorOptions:
             placeholder: 'all urls like /Studium/StudienBeratung which should redirect to this page. One URL per line.'
             rows: 5

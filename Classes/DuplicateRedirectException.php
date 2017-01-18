@@ -11,13 +11,8 @@ namespace ElementareTeilchen\Neos\ExternalRedirect;
  * source code.
  */
 
-/**
- * A TYPO3 routing exception
- */
-class DuplicateRedirectException extends \TYPO3\Neos\Exception
+use Neos\RedirectHandler\Exception as RedirectException;
+
+class DuplicateRedirectException extends RedirectException
 {
-    /**
-     * @var integer
-     */
-    protected $statusCode = 500;
 }
