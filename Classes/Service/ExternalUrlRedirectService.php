@@ -57,7 +57,7 @@ class ExternalUrlRedirectService extends NodeRedirectService
         $context = $this->contextFactory->create([
             'workspaceName' => 'live',
             'invisibleContentShown' => true,
-            'dimensions' => $node->getDimensions()
+            'dimensions' => $node->getContext()->getDimensions(),
         ]);
         $targetNode = $context->getNodeByIdentifier($node->getIdentifier());
         if ($targetNode === null) {
@@ -84,7 +84,7 @@ class ExternalUrlRedirectService extends NodeRedirectService
         }
 
         $this->flushRoutingCacheForNode($targetNode);
-        $statusCode = (integer)$this->defaultStatusCode['redirect'];
+        $statusCode = (int)$this->defaultStatusCode['redirect'];
         // split by any whitespace
         $redirectUrlsArrayOld = preg_split('/\s+/', $targetNodeRedirectUrls);
         $redirectUrlsArray = preg_split('/\s+/', $nodeRedirectUrls);
@@ -122,7 +122,7 @@ class ExternalUrlRedirectService extends NodeRedirectService
                     if ($host !== null) {
                         $hostsToAddRedirectTo[] = $host;
                     }
-                } elseif (trim($existingRedirect->getTargetUriPath(), '/') !== trim($targetNodeUriPath, '/')) {
+                // } elseif (trim($existingRedirect->getTargetUriPath(), '/') !== trim($targetNodeUriPath, '/')) {
                     // TODO: we need the exception message to be visible in production context to show editors what's wrong
                     // http://flowframework.readthedocs.io/en/stable/TheDefinitiveGuide/PartIII/ErrorAndExceptionHandling.html
                     // skip exception for now
