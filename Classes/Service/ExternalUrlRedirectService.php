@@ -13,12 +13,14 @@ namespace ElementareTeilchen\Neos\ExternalRedirect\Service;
  * source code.
  */
 
-//use ElementareTeilchen\Neos\ExternalRedirect\DuplicateRedirectException;
+// use ElementareTeilchen\Neos\ExternalRedirect\DuplicateRedirectException;
 use Neos\ContentRepository\Domain\Model\NodeInterface;
 use Neos\ContentRepository\Domain\Model\Workspace;
 use Neos\Flow\Annotations as Flow;
-use Neos\Flow\I18n\Translator;
+// use Neos\Flow\I18n\Translator;
 use Neos\Flow\Mvc\Exception\NoMatchingRouteException;
+use Neos\RedirectHandler\DatabaseStorage\Domain\Model\Redirect;
+use Neos\RedirectHandler\DatabaseStorage\Domain\Repository\RedirectRepository;
 use Neos\RedirectHandler\NeosAdapter\Service\NodeRedirectService;
 
 /**
@@ -31,10 +33,24 @@ use Neos\RedirectHandler\NeosAdapter\Service\NodeRedirectService;
 class ExternalUrlRedirectService extends NodeRedirectService
 {
     /**
-     * @Flow\Inject
-     * @var Translator
+     * @var int
+     *
+     * @Flow\InjectConfiguration(path="statusCode", package="ElementareTeilchen.Neos.ExternalRedirect")
      */
-    protected $translator;
+    protected $defaultExternalStatusCode;
+
+    /**
+     * @var RedirectRepository
+     *
+     * @Flow\Inject
+     */
+    protected $redirectRepository;
+
+    // /**
+    //  * @Flow\Inject
+    //  * @var Translator
+    //  */
+    // protected $translator;
 
     /**
      * this slot is called after the very similar slot in Neos.RedirectHandler.NeosAdapter
@@ -84,18 +100,23 @@ class ExternalUrlRedirectService extends NodeRedirectService
         }
 
         $this->flushRoutingCacheForNode($targetNode);
-        $statusCode = (int)$this->defaultStatusCode['redirect'];
+        $statusCode = $this->defaultExternalStatusCode ?? (int)$this->defaultStatusCode['redirect'];
         // split by any whitespace
         $redirectUrlsArrayOld = preg_split('/\s+/', $targetNodeRedirectUrls);
+        \array_walk($redirectUrlsArrayOld, function (&$redirectUrl) {
+            $redirectUrl = \trim(\parse_url(\trim($redirectUrl), PHP_URL_PATH), '/');
+        });
         $redirectUrlsArray = preg_split('/\s+/', $nodeRedirectUrls);
+        \array_walk($redirectUrlsArray, function (&$redirectUrl) {
+            $redirectUrl = \trim(\parse_url(\trim($redirectUrl), PHP_URL_PATH), '/');
+        });
         $removedUrls = array_diff($redirectUrlsArrayOld, $redirectUrlsArray);
 
 
         // first remove all urls which have been set earlier, but not any more -> were removed by editor just now
         foreach ($removedUrls as $redirectUrl) {
-            $urlPathOnly = parse_url(trim($redirectUrl), PHP_URL_PATH);
             foreach ($hosts as $host) {
-                $this->redirectStorage->removeOneBySourceUriPathAndHost($urlPathOnly, $host);
+                $this->redirectStorage->removeOneBySourceUriPathAndHost($redirectUrl, $host);
             }
         }
 
@@ -104,11 +125,10 @@ class ExternalUrlRedirectService extends NodeRedirectService
             if ($redirectUrl === '') {
                 continue;
             }
-            $urlPathOnly = parse_url(trim($redirectUrl), PHP_URL_PATH);
 
             if ($node->isRemoved()) {
                 foreach ($hosts as $host) {
-                    $this->redirectStorage->removeOneBySourceUriPathAndHost($urlPathOnly, $host);
+                    $this->redirectStorage->removeOneBySourceUriPathAndHost($redirectUrl, $host);
                 }
                 continue;
             }
@@ -116,7 +136,7 @@ class ExternalUrlRedirectService extends NodeRedirectService
             $shouldAddRedirect = false;
             $hostsToAddRedirectTo = [];
             foreach ($hosts as $host) {
-                $existingRedirect = $this->redirectStorage->getOneBySourceUriPathAndHost($urlPathOnly, $host, false);
+                $existingRedirect = $this->redirectStorage->getOneBySourceUriPathAndHost($redirectUrl, $host, false);
                 if ($existingRedirect === null) {
                     $shouldAddRedirect = true;
                     if ($host !== null) {
@@ -128,7 +148,7 @@ class ExternalUrlRedirectService extends NodeRedirectService
                     // skip exception for now
                     /*
                     throw new DuplicateRedirectException($this->translator->translateById('exception.redirectExists', [
-                        'source' => $urlPathOnly,
+                        'source' => $redirectUrl,
                         'newTarget' => $targetNodeUriPath,
                         'existingTarget' => $existingRedirect->getTargetUriPath()
                     ], null, null, 'Main', 'ElementareTeilchen.Neos.ExternalRedirect'), 201607051029);
@@ -137,8 +157,81 @@ class ExternalUrlRedirectService extends NodeRedirectService
             }
 
             if ($shouldAddRedirect) {
-                $this->redirectStorage->addRedirect($urlPathOnly, $targetNodeUriPath, $statusCode, $hostsToAddRedirectTo);
+                $this->redirectStorage->addRedirect($redirectUrl, $targetNodeUriPath, $statusCode, $hostsToAddRedirectTo);
             }
         }
+    }
+
+    /** @noinspection PhpDocMissingThrowsInspection */
+    /**
+     * @param NodeInterface $node
+     *
+     * @return bool
+     *
+     * @throws NoMatchingRouteException
+     */
+    public function createRedirectsForNode(NodeInterface $node) : bool
+    {
+        $nodeUriPath = $this->buildUriPathForNodeContextPath($node->getContextPath());
+        if (\strpos($nodeUriPath, './') === 0) {
+            $nodeUriPath = \substr($nodeUriPath, 2);
+        }
+        if ($nodeUriPath === null) {
+            throw new NoMatchingRouteException('The target URI path of the node could not be resolved', 1528980367020);
+        }
+
+        /** @var \Generator $existingRedirectsForTarget */
+        $existingRedirectsForTarget = $this->redirectRepository->findByTargetUriPathAndHost($nodeUriPath);
+
+        /** @noinspection PhpUnhandledExceptionInspection */
+        $nodeRedirectUrls = $node->getProperty('redirectUrls');
+        if (empty($nodeRedirectUrls) && !$existingRedirectsForTarget->valid()) {
+            return false;
+        }
+        // split by any whitespace
+        $redirectUrlsArray = \preg_split('/\s+/', $nodeRedirectUrls);
+        \array_walk($redirectUrlsArray, function (&$redirectUrl) {
+            $redirectUrl = \trim(\parse_url(\trim($redirectUrl), PHP_URL_PATH), '/');
+        });
+
+        $routingForNodeChanged = false;
+
+        foreach ($existingRedirectsForTarget as $existingRedirect) {
+            /** @var Redirect $existingRedirect */
+            if (!\in_array($existingRedirect->getSourceUriPath(), $redirectUrlsArray, true)) {
+                $this->redirectStorage->removeOneBySourceUriPathAndHost($existingRedirect->getSourceUriPath());
+                $routingForNodeChanged = true;
+            }
+        }
+
+        $statusCode = $this->defaultExternalStatusCode ?? (int)$this->defaultStatusCode['redirect'];
+
+        foreach ($redirectUrlsArray as $redirectUrl) {
+            if ($redirectUrl === '') {
+                continue;
+            }
+
+            $existingRedirect = $this->redirectStorage->getOneBySourceUriPathAndHost($redirectUrl);
+            if ($existingRedirect === null) {
+                $this->redirectStorage->addRedirect($redirectUrl, $nodeUriPath, $statusCode);
+                $routingForNodeChanged = true;
+                // } elseif (trim($existingRedirect->getTargetUriPath(), '/') !== trim($nodeUriPath, '/')) {
+                // TODO: we need the exception message to be visible in production context to show editors what's wrong
+                // http://flowframework.readthedocs.io/en/stable/TheDefinitiveGuide/PartIII/ErrorAndExceptionHandling.html
+                // skip exception for now
+                /*
+                throw new DuplicateRedirectException($this->translator->translateById('exception.redirectExists', [
+                    'source' => $redirectUrl,
+                    'newTarget' => $nodeUriPath,
+                    'existingTarget' => $existingRedirect->getTargetUriPath()
+                ], null, null, 'Main', 'ElementareTeilchen.Neos.ExternalRedirect'), 201607051029);
+                */
+            }
+        }
+
+        if ($routingForNodeChanged) {
+            $this->flushRoutingCacheForNode($node);
+        }
+        return $routingForNodeChanged;
     }
 }

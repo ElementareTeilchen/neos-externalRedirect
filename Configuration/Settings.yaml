@@ -1,3 +1,7 @@
+ElementareTeilchen:
+  Neos:
+    ExternalRedirect:
+      statusCode: 301
 
 Neos:
   Neos:
