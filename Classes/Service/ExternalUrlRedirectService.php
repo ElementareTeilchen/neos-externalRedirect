@@ -13,18 +13,18 @@ namespace ElementareTeilchen\Neos\ExternalRedirect\Service;
  * source code.
  */
 
-// use ElementareTeilchen\Neos\ExternalRedirect\DuplicateRedirectException;
 use Neos\ContentRepository\Domain\Model\NodeInterface;
 use Neos\ContentRepository\Domain\Model\Workspace;
 use Neos\Flow\Annotations as Flow;
-// use Neos\Flow\I18n\Translator;
 use Neos\Flow\Mvc\Exception\NoMatchingRouteException;
 use Neos\RedirectHandler\DatabaseStorage\Domain\Model\Redirect;
 use Neos\RedirectHandler\DatabaseStorage\Domain\Repository\RedirectRepository;
 use Neos\RedirectHandler\NeosAdapter\Service\NodeRedirectService;
 
+
 /**
- * Service that creates redirects for given external urls in inspector field in nodes to the node in which the external url is saved.
+ * Service that creates redirects for given external urls in inspector field in nodes to the node in which the external
+ * url is saved.
  *
  * Note: This is usually invoked by a signal emitted by Workspace::publishNode()
  *
@@ -46,19 +46,19 @@ class ExternalUrlRedirectService extends NodeRedirectService
      */
     protected $redirectRepository;
 
-    // /**
-    //  * @Flow\Inject
-    //  * @var Translator
-    //  */
-    // protected $translator;
 
+    /** @noinspection PhpDocMissingThrowsInspection */
     /**
-     * this slot is called after the very similar slot in Neos.RedirectHandler.NeosAdapter
-     * we deliberately depend on that package, which does already lots of stuff needed (like clearing redirect cache)
+     * This slot is called after the very similar slot in Neos.RedirectHandler.NeosAdapter
+     *
+     * We deliberately depend on that package, which does already lots of stuff needed (like clearing redirect cache)
      * and add only needed stuff for our use case
-
+     *
      * @param NodeInterface $node
      * @param Workspace $targetWorkspace
+     *
+     * @return void
+     *
      * @throws NoMatchingRouteException
      */
     public function createRedirectsForPublishedNode(NodeInterface $node, Workspace $targetWorkspace)
@@ -82,7 +82,9 @@ class ExternalUrlRedirectService extends NodeRedirectService
             return;
         }
 
+        /** @noinspection PhpUnhandledExceptionInspection */
         $nodeRedirectUrls = $node->getProperty('redirectUrls');
+        /** @noinspection PhpUnhandledExceptionInspection */
         $targetNodeRedirectUrls = $targetNode->getProperty('redirectUrls');
         //only keep going if redirect field has changed
         if ($nodeRedirectUrls === $targetNodeRedirectUrls) {
@@ -103,13 +105,19 @@ class ExternalUrlRedirectService extends NodeRedirectService
         $statusCode = $this->defaultExternalStatusCode ?? (int)$this->defaultStatusCode['redirect'];
         // split by any whitespace
         $redirectUrlsArrayOld = preg_split('/\s+/', $targetNodeRedirectUrls);
-        \array_walk($redirectUrlsArrayOld, function (&$redirectUrl) {
-            $redirectUrl = \trim(\parse_url(\trim($redirectUrl), PHP_URL_PATH), '/');
-        });
+        \array_walk(
+            $redirectUrlsArrayOld,
+            function (&$redirectUrl) {
+                $redirectUrl = \trim(\parse_url(\trim($redirectUrl), PHP_URL_PATH), '/');
+            }
+        );
         $redirectUrlsArray = preg_split('/\s+/', $nodeRedirectUrls);
-        \array_walk($redirectUrlsArray, function (&$redirectUrl) {
-            $redirectUrl = \trim(\parse_url(\trim($redirectUrl), PHP_URL_PATH), '/');
-        });
+        \array_walk(
+            $redirectUrlsArray,
+            function (&$redirectUrl) {
+                $redirectUrl = \trim(\parse_url(\trim($redirectUrl), PHP_URL_PATH), '/');
+            }
+        );
         $removedUrls = array_diff($redirectUrlsArrayOld, $redirectUrlsArray);
 
 
@@ -157,7 +165,12 @@ class ExternalUrlRedirectService extends NodeRedirectService
             }
 
             if ($shouldAddRedirect) {
-                $this->redirectStorage->addRedirect($redirectUrl, $targetNodeUriPath, $statusCode, $hostsToAddRedirectTo);
+                $this->redirectStorage->addRedirect(
+                    $redirectUrl,
+                    $targetNodeUriPath,
+                    $statusCode,
+                    $hostsToAddRedirectTo
+                );
             }
         }
     }
@@ -190,9 +203,12 @@ class ExternalUrlRedirectService extends NodeRedirectService
         }
         // split by any whitespace
         $redirectUrlsArray = \preg_split('/\s+/', $nodeRedirectUrls);
-        \array_walk($redirectUrlsArray, function (&$redirectUrl) {
-            $redirectUrl = \trim(\parse_url(\trim($redirectUrl), PHP_URL_PATH), '/');
-        });
+        \array_walk(
+            $redirectUrlsArray,
+            function (&$redirectUrl) {
+                $redirectUrl = \trim(\parse_url(\trim($redirectUrl), PHP_URL_PATH), '/');
+            }
+        );
 
         $routingForNodeChanged = false;
 
@@ -215,7 +231,7 @@ class ExternalUrlRedirectService extends NodeRedirectService
             if ($existingRedirect === null) {
                 $this->redirectStorage->addRedirect($redirectUrl, $nodeUriPath, $statusCode);
                 $routingForNodeChanged = true;
-                // } elseif (trim($existingRedirect->getTargetUriPath(), '/') !== trim($nodeUriPath, '/')) {
+            // } elseif (trim($existingRedirect->getTargetUriPath(), '/') !== trim($nodeUriPath, '/')) {
                 // TODO: we need the exception message to be visible in production context to show editors what's wrong
                 // http://flowframework.readthedocs.io/en/stable/TheDefinitiveGuide/PartIII/ErrorAndExceptionHandling.html
                 // skip exception for now
@@ -232,6 +248,7 @@ class ExternalUrlRedirectService extends NodeRedirectService
         if ($routingForNodeChanged) {
             $this->flushRoutingCacheForNode($node);
         }
+
         return $routingForNodeChanged;
     }
 }
