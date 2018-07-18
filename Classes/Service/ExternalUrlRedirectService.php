@@ -91,7 +91,8 @@ class ExternalUrlRedirectService extends NodeRedirectService
             return;
         }
 
-        $targetNodeUriPath = $this->buildUriPathForNodeContextPath($targetNode->getContextPath());
+        /** @noinspection PhpUnhandledExceptionInspection */
+        $targetNodeUriPath = $this->buildUriPathForNodeContextPath($targetNode);
         if ($targetNodeUriPath === null) {
             throw new NoMatchingRouteException('The target URI path of the node could not be resolved', 1451945358);
         }

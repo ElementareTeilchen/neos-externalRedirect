@@ -8,7 +8,7 @@
         "neos/flow": "^4.0",
         "neos/neos": "^3.0",
         "neos/redirecthandler": "^2.0",
-        "neos/redirecthandler-neosadapter": "^2.0"
+        "neos/redirecthandler-neosadapter": "^2.0.4"
     },
     "autoload": {
         "psr-4": {
