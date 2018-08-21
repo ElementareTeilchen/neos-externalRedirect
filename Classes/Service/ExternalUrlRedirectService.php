@@ -21,7 +21,6 @@ use Neos\RedirectHandler\DatabaseStorage\Domain\Model\Redirect;
 use Neos\RedirectHandler\DatabaseStorage\Domain\Repository\RedirectRepository;
 use Neos\RedirectHandler\NeosAdapter\Service\NodeRedirectService;
 
-
 /**
  * Service that creates redirects for given external urls in inspector field in nodes to the node in which the external
  * url is saved.
