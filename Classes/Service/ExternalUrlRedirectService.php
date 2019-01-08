@@ -1,4 +1,5 @@
 <?php
+
 namespace ElementareTeilchen\Neos\ExternalRedirect\Service;
 
 /*
@@ -15,8 +16,11 @@ namespace ElementareTeilchen\Neos\ExternalRedirect\Service;
 
 use Neos\ContentRepository\Domain\Model\NodeInterface;
 use Neos\ContentRepository\Domain\Model\Workspace;
+use Neos\ContentRepository\Exception\NodeException;
 use Neos\Flow\Annotations as Flow;
 use Neos\Flow\Mvc\Exception\NoMatchingRouteException;
+use Neos\Flow\Mvc\Routing\Exception\MissingActionNameException;
+use Neos\Neos\Domain\Service\ContentContext;
 use Neos\RedirectHandler\DatabaseStorage\Domain\Model\Redirect;
 use Neos\RedirectHandler\DatabaseStorage\Domain\Repository\RedirectRepository;
 use Neos\RedirectHandler\NeosAdapter\Service\NodeRedirectService;
@@ -46,7 +50,6 @@ class ExternalUrlRedirectService extends NodeRedirectService
     protected $redirectRepository;
 
 
-    /** @noinspection PhpDocMissingThrowsInspection */
     /**
      * This slot is called after the very similar slot in Neos.RedirectHandler.NeosAdapter
      *
@@ -60,7 +63,7 @@ class ExternalUrlRedirectService extends NodeRedirectService
      *
      * @throws NoMatchingRouteException
      */
-    public function createRedirectsForPublishedNode(NodeInterface $node, Workspace $targetWorkspace)
+    public function createRedirectsForPublishedNode(NodeInterface $node, Workspace $targetWorkspace) : void
     {
         $nodeType = $node->getNodeType();
 
@@ -81,22 +84,33 @@ class ExternalUrlRedirectService extends NodeRedirectService
             return;
         }
 
-        /** @noinspection PhpUnhandledExceptionInspection */
-        $nodeRedirectUrls = $node->getProperty('redirectUrls');
-        /** @noinspection PhpUnhandledExceptionInspection */
-        $targetNodeRedirectUrls = $targetNode->getProperty('redirectUrls');
+        try {
+            $nodeRedirectUrls = $node->getProperty('redirectUrls');
+            $targetNodeRedirectUrls = $targetNode->getProperty('redirectUrls');
+        } catch (NodeException $exception) {
+            return;
+        }
         //only keep going if redirect field has changed
         if ($nodeRedirectUrls === $targetNodeRedirectUrls) {
             return;
         }
 
-        /** @noinspection PhpUnhandledExceptionInspection */
-        $targetNodeUriPath = $this->buildUriPathForNodeContextPath($targetNode);
+        try {
+            $targetNodeUriPath = $this->buildUriPathForNodeContextPath($targetNode);
+        } catch (MissingActionNameException $exception) {
+            // Action name is declared explicitly in the method
+            return;
+        }
         if ($targetNodeUriPath === null) {
             throw new NoMatchingRouteException('The target URI path of the node could not be resolved', 1451945358);
         }
 
-        $hosts = $this->getHostnames($node->getContext());
+        $contentContext = $node->getContext();
+        if (!$contentContext instanceof ContentContext) {
+            // should not happen
+            return;
+        }
+        $hosts = $this->getHostnames($contentContext);
         if ($hosts === []) {
             $hosts[] = null;
         }
@@ -104,21 +118,21 @@ class ExternalUrlRedirectService extends NodeRedirectService
         $this->flushRoutingCacheForNode($targetNode);
         $statusCode = $this->defaultExternalStatusCode ?? (int)$this->defaultStatusCode['redirect'];
         // split by any whitespace
-        $redirectUrlsArrayOld = preg_split('/\s+/', $targetNodeRedirectUrls);
+        $redirectUrlsArrayOld = \preg_split('/\s+/', $targetNodeRedirectUrls);
         \array_walk(
             $redirectUrlsArrayOld,
             function (&$redirectUrl) {
                 $redirectUrl = \trim(\parse_url(\trim($redirectUrl), PHP_URL_PATH), '/');
             }
         );
-        $redirectUrlsArray = preg_split('/\s+/', $nodeRedirectUrls);
+        $redirectUrlsArray = \preg_split('/\s+/', $nodeRedirectUrls);
         \array_walk(
             $redirectUrlsArray,
             function (&$redirectUrl) {
                 $redirectUrl = \trim(\parse_url(\trim($redirectUrl), PHP_URL_PATH), '/');
             }
         );
-        $removedUrls = array_diff($redirectUrlsArrayOld, $redirectUrlsArray);
+        $removedUrls = \array_diff($redirectUrlsArrayOld, $redirectUrlsArray);
 
 
         // first remove all urls which have been set earlier, but not any more -> were removed by editor just now
@@ -175,7 +189,6 @@ class ExternalUrlRedirectService extends NodeRedirectService
         }
     }
 
-    /** @noinspection PhpDocMissingThrowsInspection */
     /**
      * @param NodeInterface $node
      *
@@ -185,19 +198,28 @@ class ExternalUrlRedirectService extends NodeRedirectService
      */
     public function createRedirectsForNode(NodeInterface $node) : bool
     {
-        $nodeUriPath = $this->buildUriPathForNodeContextPath($node->getContextPath());
-        if (\strpos($nodeUriPath, './') === 0) {
-            $nodeUriPath = \substr($nodeUriPath, 2);
+        try {
+            $nodeUriPath = $this->buildUriPathForNodeContextPath($node->getContextPath());
+        } catch (MissingActionNameException $e) {
+            // Action name is declared explicitly in the method
+            return false;
         }
+
         if ($nodeUriPath === null) {
             throw new NoMatchingRouteException('The target URI path of the node could not be resolved', 1528980367020);
+        }
+        if (\strpos($nodeUriPath, './') === 0) {
+            $nodeUriPath = \substr($nodeUriPath, 2);
         }
 
         /** @var \Generator $existingRedirectsForTarget */
         $existingRedirectsForTarget = $this->redirectRepository->findByTargetUriPathAndHost($nodeUriPath);
 
-        /** @noinspection PhpUnhandledExceptionInspection */
-        $nodeRedirectUrls = $node->getProperty('redirectUrls');
+        try {
+            $nodeRedirectUrls = $node->getProperty('redirectUrls');
+        } catch (NodeException $exception) {
+            return false;
+        }
         if (empty($nodeRedirectUrls) && !$existingRedirectsForTarget->valid()) {
             return false;
         }

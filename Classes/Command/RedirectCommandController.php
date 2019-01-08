@@ -11,6 +11,7 @@ use Neos\ContentRepository\Domain\Service\ContextFactory;
 use Neos\ContentRepository\Exception\NodeConfigurationException;
 use Neos\Flow\Annotations as Flow;
 use Neos\Flow\Cli\CommandController;
+use Neos\Flow\Mvc\Exception\NoMatchingRouteException;
 use Neos\Neos\Domain\Service\ContentDimensionPresetSourceInterface;
 
 /**
@@ -60,7 +61,7 @@ class RedirectCommandController extends CommandController
      */
     protected $workspaceRepository;
 
-    /** @noinspection PhpDocMissingThrowsInspection */
+
     /**
      * Generate external redirects from Node properties
      *
@@ -68,7 +69,7 @@ class RedirectCommandController extends CommandController
      *
      * @throws NodeConfigurationException
      */
-    public function generateExternalCommand()
+    public function generateExternalCommand() : void
     {
         \putenv('FLOW_REWRITEURLS=1');
         /** @var Workspace $liveWorkspace */
@@ -76,9 +77,9 @@ class RedirectCommandController extends CommandController
         $contentDimensionPresetSources = $this->contentDimensionPresetSource->getAllPresets();
         foreach ($contentDimensionPresetSources as $contentDimensionName => ['presets' => $contentDimensionPresets]) {
             foreach ($contentDimensionPresets as ['values' => $contentDimensionPresetValues]) {
-                $context = $this->contextFactory->create(
-                    ['dimensions' => [$contentDimensionName => $contentDimensionPresetValues]]
-                );
+                $context = $this->contextFactory->create([
+                    'dimensions' => [$contentDimensionName => $contentDimensionPresetValues],
+                ]);
                 /** @var NodeData[] $nodeDatas */
                 $nodeDatas = $this->nodeDataRepository->findByParentAndNodeTypeRecursively(
                     '/sites',
@@ -92,9 +93,20 @@ class RedirectCommandController extends CommandController
                         continue;
                     }
 
-                    /** @noinspection PhpUnhandledExceptionInspection */
-                    if ($this->externalUrlRedirectService->createRedirectsForNode($nodeInterface)) {
-                        $this->outputLine('Weiterleitungen für Node ' . $nodeInterface->getContextPath() . ' aktualisiert');
+                    try {
+                        if ($this->externalUrlRedirectService->createRedirectsForNode($nodeInterface)) {
+                            $this->outputLine(
+                                'Weiterleitungen für Node ' . $nodeInterface->getContextPath() . ' aktualisiert'
+                            );
+                        }
+                    } catch (NoMatchingRouteException $exception) {
+                        $this->outputLine(
+                            'ERROR creating redirect for node %s: %s',
+                            [
+                                $nodeInterface->getContextPath(),
+                                $exception->getMessage(),
+                            ]
+                        );
                     }
                 }
             }

@@ -1,4 +1,5 @@
 <?php
+
 namespace ElementareTeilchen\Neos\ExternalRedirect;
 
 /*
@@ -12,9 +13,9 @@ namespace ElementareTeilchen\Neos\ExternalRedirect;
  */
 
 use ElementareTeilchen\Neos\ExternalRedirect\Service\ExternalUrlRedirectService;
+use Neos\ContentRepository\Domain\Model\Workspace;
 use Neos\Flow\Core\Bootstrap;
 use Neos\Flow\Package\Package as BasePackage;
-use Neos\ContentRepository\Domain\Model\Workspace;
 
 /**
  * The ElementareTeilchen Neos ExternalRedirect Package
@@ -23,12 +24,22 @@ class Package extends BasePackage
 {
     /**
      * @param Bootstrap $bootstrap The current bootstrap
+     *
      * @return void
      */
-    public function boot(Bootstrap $bootstrap)
+    public function boot(Bootstrap $bootstrap) : void
     {
         $dispatcher = $bootstrap->getSignalSlotDispatcher();
 
-        $dispatcher->connect(Workspace::class, 'beforeNodePublishing', ExternalUrlRedirectService::class, 'createRedirectsForPublishedNode');
+        try {
+            $dispatcher->connect(
+                Workspace::class,
+                'beforeNodePublishing',
+                ExternalUrlRedirectService::class,
+                'createRedirectsForPublishedNode'
+            );
+        } catch (\InvalidArgumentException $e) {
+            // Arguments are valid
+        }
     }
 }
