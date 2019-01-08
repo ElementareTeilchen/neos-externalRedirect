@@ -96,7 +96,7 @@ class ExternalUrlRedirectService extends NodeRedirectService
         }
 
         try {
-            $targetNodeUriPath = $this->buildUriPathForNodeContextPath($targetNode);
+            $targetNodeUriPath = $this->buildUriPathForNode($targetNode);
         } catch (MissingActionNameException $exception) {
             // Action name is declared explicitly in the method
             return;
@@ -199,7 +199,7 @@ class ExternalUrlRedirectService extends NodeRedirectService
     public function createRedirectsForNode(NodeInterface $node) : bool
     {
         try {
-            $nodeUriPath = $this->buildUriPathForNodeContextPath($node->getContextPath());
+            $nodeUriPath = $this->buildUriPathForNode($node);
         } catch (MissingActionNameException $e) {
             // Action name is declared explicitly in the method
             return false;
