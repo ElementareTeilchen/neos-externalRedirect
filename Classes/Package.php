@@ -16,6 +16,7 @@ use ElementareTeilchen\Neos\ExternalRedirect\Service\ExternalUrlRedirectService;
 use Neos\ContentRepository\Domain\Model\Workspace;
 use Neos\Flow\Core\Bootstrap;
 use Neos\Flow\Package\Package as BasePackage;
+use Neos\Flow\Persistence\Doctrine\PersistenceManager;
 
 /**
  * The ElementareTeilchen Neos ExternalRedirect Package
@@ -36,9 +37,15 @@ class Package extends BasePackage
                 Workspace::class,
                 'beforeNodePublishing',
                 ExternalUrlRedirectService::class,
-                'createRedirectsForPublishedNode'
+                'collectPossibleRedirects'
             );
-        } catch (\InvalidArgumentException $e) {
+            $dispatcher->connect(
+                PersistenceManager::class,
+                'allObjectsPersisted',
+                ExternalUrlRedirectService::class,
+                'createPendingRedirects'
+            );
+        } catch (\InvalidArgumentException $exception) {
             // Arguments are valid
         }
     }

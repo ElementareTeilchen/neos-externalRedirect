@@ -1,6 +1,7 @@
 ElementareTeilchen:
   Neos:
     ExternalRedirect:
+      createForAllHosts: true
       statusCode: 301
 
 Neos:

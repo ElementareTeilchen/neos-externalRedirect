@@ -1,5 +1,4 @@
 <?php
-
 namespace ElementareTeilchen\Neos\ExternalRedirect\Service;
 
 /*
@@ -14,177 +13,219 @@ namespace ElementareTeilchen\Neos\ExternalRedirect\Service;
  * source code.
  */
 
+use ElementareTeilchen\Neos\ExternalRedirect\PendingRedirect;
+use Neos\ContentRepository\Domain\Factory\NodeFactory;
+use Neos\ContentRepository\Domain\Model\NodeData;
 use Neos\ContentRepository\Domain\Model\NodeInterface;
 use Neos\ContentRepository\Domain\Model\Workspace;
+use Neos\ContentRepository\Domain\Repository\NodeDataRepository;
 use Neos\ContentRepository\Exception\NodeException;
 use Neos\Flow\Annotations as Flow;
-use Neos\Flow\Mvc\Exception\NoMatchingRouteException;
+use Neos\Flow\Http\Request;
+use Neos\Flow\Mvc\ActionRequest;
 use Neos\Flow\Mvc\Routing\Exception\MissingActionNameException;
+use Neos\Flow\Mvc\Routing\RouterCachingService;
+use Neos\Flow\Mvc\Routing\UriBuilder;
+use Neos\Flow\Persistence\PersistenceManagerInterface;
+use Neos\Neos\Domain\Model\Domain;
 use Neos\Neos\Domain\Service\ContentContext;
 use Neos\RedirectHandler\DatabaseStorage\Domain\Model\Redirect;
-use Neos\RedirectHandler\DatabaseStorage\Domain\Repository\RedirectRepository;
-use Neos\RedirectHandler\NeosAdapter\Service\NodeRedirectService;
+use Neos\RedirectHandler\Storage\RedirectStorageInterface;
 
 /**
- * Service that creates redirects for given external urls in inspector field in nodes to the node in which the external
- * url is saved.
- *
- * Note: This is usually invoked by a signal emitted by Workspace::publishNode()
+ * Service that creates redirects for given external urls in a node property to the node in which the external url is
+ * saved.
  *
  * @Flow\Scope("singleton")
  */
-class ExternalUrlRedirectService extends NodeRedirectService
+class ExternalUrlRedirectService
 {
     /**
-     * @var int
+     * The name of the mixin containing the redirect urls property
      *
-     * @Flow\InjectConfiguration(path="statusCode", package="ElementareTeilchen.Neos.ExternalRedirect")
+     * @var string
      */
-    protected $defaultExternalStatusCode;
+    public const REDIRECT_URLS_MIXIN = 'ElementareTeilchen.Neos.ExternalRedirect:RedirectUrlsMixin';
 
     /**
-     * @var RedirectRepository
+     * The name of the property containing the redirect urls
      *
+     * @var string
+     */
+    public const REDIRECT_URLS_PROPERTY = 'redirectUrls';
+
+
+    /**
+     * @Flow\InjectConfiguration(path="createForAllHosts", package="ElementareTeilchen.Neos.ExternalRedirect")
+     *
+     * @var bool
+     */
+    protected $createRedirectForAllHosts;
+
+    /**
      * @Flow\Inject
+     *
+     * @var NodeDataRepository
      */
-    protected $redirectRepository;
+    protected $nodeDataRepository;
+
+    /**
+     * @Flow\Inject
+     *
+     * @var NodeFactory
+     */
+    protected $nodeFactory;
+
+    /**
+     * @var array<PendingRedirect>
+     */
+    protected $pendingRedirects = [];
+
+    /**
+     * @Flow\Inject
+     *
+     * @var PersistenceManagerInterface
+     */
+    protected $persistenceManager;
+
+    /**
+     * @Flow\InjectConfiguration(path="statusCode", package="ElementareTeilchen.Neos.ExternalRedirect")
+     *
+     * @var int
+     */
+    protected $redirectStatusCode;
+
+    /**
+     * @Flow\Inject
+     *
+     * @var RedirectStorageInterface
+     */
+    protected $redirectStorage;
+
+    /**
+     * @Flow\Inject
+     *
+     * @var RouterCachingService
+     */
+    protected $routerCachingService;
+
+    /**
+     * @var UriBuilder
+     */
+    protected $uriBuilder;
 
 
     /**
-     * This slot is called after the very similar slot in Neos.RedirectHandler.NeosAdapter
+     * @param ContentContext $contentContext
      *
-     * We deliberately depend on that package, which does already lots of stuff needed (like clearing redirect cache)
-     * and add only needed stuff for our use case
+     * @return array<string>
+     */
+    protected static function extractAllHostsFromContentContext(ContentContext $contentContext) : array
+    {
+        $hosts = [];
+        $site = $contentContext->getCurrentSite();
+        if ($site !== null) {
+            foreach ($site->getActiveDomains() as $domain) {
+                \assert($domain instanceof Domain);
+                $hosts[] = $domain->getHostname();
+            }
+        }
+        return $hosts;
+    }
+
+    /**
+     * @param string $redirectUrls
      *
-     * @param NodeInterface $node
+     * @return array<string>
+     */
+    protected static function splitUrlPathsByWhitespace(string $redirectUrls) : array
+    {
+        $redirectUrlsArray = \preg_split('/\s+/', $redirectUrls);
+        \array_walk(
+            $redirectUrlsArray,
+            static function (string &$redirectUrl) {
+                $redirectUrl = \trim(\parse_url(\trim($redirectUrl), PHP_URL_PATH), '/');
+            }
+        );
+
+        return $redirectUrlsArray;
+    }
+
+
+    /**
+     * @return void
+     */
+    public function initializeObject() : void
+    {
+        $this->uriBuilder = new UriBuilder();
+        try {
+            $this->uriBuilder->setRequest(new ActionRequest(Request::createFromEnvironment()));
+        } catch (\InvalidArgumentException $exception) {
+            // HttpRequest is hardcoded above
+        }
+        $this->uriBuilder->setFormat('html')->setCreateAbsoluteUri(false);
+    }
+
+
+    /**
+     * Collects the node for redirection if it is a 'ElementareTeilchen.Neos.ExternalRedirect:RedirectUrlsMixin' node
+     *
+     * @param NodeInterface $node The node that is about to be published
      * @param Workspace $targetWorkspace
      *
      * @return void
-     *
-     * @throws NoMatchingRouteException
      */
-    public function createRedirectsForPublishedNode(NodeInterface $node, Workspace $targetWorkspace) : void
+    public function collectPossibleRedirects(NodeInterface $node, Workspace $targetWorkspace) : void
     {
-        $nodeType = $node->getNodeType();
-
-        // only act if a Document node is published to live workspace
-        if ($targetWorkspace->getName() !== 'live' || !$nodeType->isOfType('Neos.Neos:Document')) {
+        if (
+            $targetWorkspace->isPublicWorkspace() === false
+            || $node->getNodeType()->isOfType(self::REDIRECT_URLS_MIXIN) === false
+        ) {
             return;
         }
+        $this->appendNodeToPendingRedirects($node, $targetWorkspace);
+    }
 
-        $context = $this->contextFactory->create([
-            'workspaceName' => 'live',
-            'invisibleContentShown' => true,
-            'dimensions' => $node->getContext()->getDimensions(),
-        ]);
-        $targetNode = $context->getNodeByIdentifier($node->getIdentifier());
-        if ($targetNode === null) {
-            // The page has been newly added, then we dont have targetNodeUriPath
-            // todo: is it important to be able to save external redirects on page creation?
-            return;
-        }
-
-        try {
-            $nodeRedirectUrls = $node->getProperty('redirectUrls');
-            $targetNodeRedirectUrls = $targetNode->getProperty('redirectUrls');
-        } catch (NodeException $exception) {
-            return;
-        }
-        //only keep going if redirect field has changed
-        if ($nodeRedirectUrls === $targetNodeRedirectUrls) {
-            return;
-        }
-
-        try {
-            $targetNodeUriPath = $this->buildUriPathForNode($targetNode);
-        } catch (MissingActionNameException $exception) {
-            // Action name is declared explicitly in the method
-            return;
-        }
-        if ($targetNodeUriPath === null) {
-            throw new NoMatchingRouteException('The target URI path of the node could not be resolved', 1451945358);
-        }
-
-        $contentContext = $node->getContext();
-        if (!$contentContext instanceof ContentContext) {
-            // should not happen
-            return;
-        }
-        $hosts = $this->getHostnames($contentContext);
-        if ($hosts === []) {
-            $hosts[] = null;
-        }
-
-        $this->flushRoutingCacheForNode($targetNode);
-        $statusCode = $this->defaultExternalStatusCode ?? (int)$this->defaultStatusCode['redirect'];
-        // split by any whitespace
-        $redirectUrlsArrayOld = \preg_split('/\s+/', $targetNodeRedirectUrls);
-        \array_walk(
-            $redirectUrlsArrayOld,
-            function (&$redirectUrl) {
-                $redirectUrl = \trim(\parse_url(\trim($redirectUrl), PHP_URL_PATH), '/');
-            }
-        );
-        $redirectUrlsArray = \preg_split('/\s+/', $nodeRedirectUrls);
-        \array_walk(
-            $redirectUrlsArray,
-            function (&$redirectUrl) {
-                $redirectUrl = \trim(\parse_url(\trim($redirectUrl), PHP_URL_PATH), '/');
-            }
-        );
-        $removedUrls = \array_diff($redirectUrlsArrayOld, $redirectUrlsArray);
-
-
-        // first remove all urls which have been set earlier, but not any more -> were removed by editor just now
-        foreach ($removedUrls as $redirectUrl) {
-            foreach ($hosts as $host) {
-                $this->redirectStorage->removeOneBySourceUriPathAndHost($redirectUrl, $host);
-            }
-        }
-
-        // check/add the current urls
-        foreach ($redirectUrlsArray as $redirectUrl) {
-            if ($redirectUrl === '') {
-                continue;
-            }
-
-            if ($node->isRemoved()) {
-                foreach ($hosts as $host) {
-                    $this->redirectStorage->removeOneBySourceUriPathAndHost($redirectUrl, $host);
+    /**
+     * Creates the queued redirects provided we can find the node.
+     *
+     * @return void
+     */
+    public function createPendingRedirects() : void
+    {
+        $this->nodeFactory->reset();
+        foreach ($this->pendingRedirects as $pendingRedirect) {
+            assert($pendingRedirect instanceof PendingRedirect);
+            $contentContext = $pendingRedirect->createContentContext();
+            $node = $contentContext->getNodeByIdentifier($pendingRedirect->getNodeIdentifier());
+            if ($node !== null) {
+                $oldUrlPaths = static::splitUrlPathsByWhitespace($pendingRedirect->getOldRedirectUrls());
+                try {
+                    $newUrlPaths = static::splitUrlPathsByWhitespace(
+                        $node->getProperty(static::REDIRECT_URLS_PROPERTY)
+                    );
+                } catch (NodeException $exception) {
+                    // The property not existing is like the property being empty
+                    $newUrlPaths = [];
                 }
-                continue;
-            }
-
-            $shouldAddRedirect = false;
-            $hostsToAddRedirectTo = [];
-            foreach ($hosts as $host) {
-                $existingRedirect = $this->redirectStorage->getOneBySourceUriPathAndHost($redirectUrl, $host, false);
-                if ($existingRedirect === null) {
-                    $shouldAddRedirect = true;
-                    if ($host !== null) {
-                        $hostsToAddRedirectTo[] = $host;
-                    }
-                // } elseif (trim($existingRedirect->getTargetUriPath(), '/') !== trim($targetNodeUriPath, '/')) {
-                    // TODO: we need the exception message to be visible in production context to show editors what's wrong
-                    // http://flowframework.readthedocs.io/en/stable/TheDefinitiveGuide/PartIII/ErrorAndExceptionHandling.html
-                    // skip exception for now
-                    /*
-                    throw new DuplicateRedirectException($this->translator->translateById('exception.redirectExists', [
-                        'source' => $redirectUrl,
-                        'newTarget' => $targetNodeUriPath,
-                        'existingTarget' => $existingRedirect->getTargetUriPath()
-                    ], null, null, 'Main', 'ElementareTeilchen.Neos.ExternalRedirect'), 201607051029);
-                    */
-                }
-            }
-
-            if ($shouldAddRedirect) {
-                $this->redirectStorage->addRedirect(
-                    $redirectUrl,
-                    $targetNodeUriPath,
-                    $statusCode,
-                    $hostsToAddRedirectTo
+                $hosts = $this->createRedirectForAllHosts
+                    ? [null]
+                    : static::extractAllHostsFromContentContext($contentContext)
+                ;
+                $nodeUriPath = $this->buildUriPathForNode($node);
+                $removedRedirects = $this->removeRedirects(
+                    \array_diff($oldUrlPaths, $newUrlPaths),
+                    $nodeUriPath,
+                    $hosts
                 );
+                $createdRedirects = $this->createRedirects(
+                    \array_diff($newUrlPaths, $oldUrlPaths),
+                    $nodeUriPath,
+                    $hosts
+                );
+                if ($removedRedirects > 0 || $createdRedirects !== []) {
+                    $this->flushRoutingCacheForNode($node);
+                }
             }
         }
     }
@@ -193,84 +234,186 @@ class ExternalUrlRedirectService extends NodeRedirectService
      * @param NodeInterface $node
      *
      * @return bool
-     *
-     * @throws NoMatchingRouteException
      */
     public function createRedirectsForNode(NodeInterface $node) : bool
     {
-        try {
-            $nodeUriPath = $this->buildUriPathForNode($node);
-        } catch (MissingActionNameException $e) {
-            // Action name is declared explicitly in the method
-            return false;
-        }
-
-        if ($nodeUriPath === null) {
-            throw new NoMatchingRouteException('The target URI path of the node could not be resolved', 1528980367020);
-        }
-        if (\strpos($nodeUriPath, './') === 0) {
-            $nodeUriPath = \substr($nodeUriPath, 2);
-        }
-
-        /** @var \Generator $existingRedirectsForTarget */
-        $existingRedirectsForTarget = $this->redirectRepository->findByTargetUriPathAndHost($nodeUriPath);
+        $nodeUriPath = $this->buildUriPathForNode($node);
 
         try {
-            $nodeRedirectUrls = $node->getProperty('redirectUrls');
+            $nodeRedirectUrls = $node->getProperty(static::REDIRECT_URLS_PROPERTY);
         } catch (NodeException $exception) {
+            $nodeRedirectUrls = '';
+        }
+        if (empty($nodeRedirectUrls)) {
             return false;
         }
-        if (empty($nodeRedirectUrls) && !$existingRedirectsForTarget->valid()) {
-            return false;
-        }
-        // split by any whitespace
-        $redirectUrlsArray = \preg_split('/\s+/', $nodeRedirectUrls);
-        \array_walk(
-            $redirectUrlsArray,
-            function (&$redirectUrl) {
-                $redirectUrl = \trim(\parse_url(\trim($redirectUrl), PHP_URL_PATH), '/');
-            }
-        );
 
-        $routingForNodeChanged = false;
-
-        foreach ($existingRedirectsForTarget as $existingRedirect) {
-            /** @var Redirect $existingRedirect */
-            if (!\in_array($existingRedirect->getSourceUriPath(), $redirectUrlsArray, true)) {
-                $this->redirectStorage->removeOneBySourceUriPathAndHost($existingRedirect->getSourceUriPath());
-                $routingForNodeChanged = true;
-            }
-        }
-
-        $statusCode = $this->defaultExternalStatusCode ?? (int)$this->defaultStatusCode['redirect'];
-
-        foreach ($redirectUrlsArray as $redirectUrl) {
-            if ($redirectUrl === '') {
+        $uriPaths = static::splitUrlPathsByWhitespace($nodeRedirectUrls);
+        $uriPathsToCreateRedirectFor = [];
+        foreach ($uriPaths as $uriPath) {
+            if ($uriPath === '') {
                 continue;
             }
 
-            $existingRedirect = $this->redirectStorage->getOneBySourceUriPathAndHost($redirectUrl);
+            $existingRedirect = $this->redirectStorage->getOneBySourceUriPathAndHost($uriPath);
             if ($existingRedirect === null) {
-                $this->redirectStorage->addRedirect($redirectUrl, $nodeUriPath, $statusCode);
-                $routingForNodeChanged = true;
-            // } elseif (trim($existingRedirect->getTargetUriPath(), '/') !== trim($nodeUriPath, '/')) {
-                // TODO: we need the exception message to be visible in production context to show editors what's wrong
-                // http://flowframework.readthedocs.io/en/stable/TheDefinitiveGuide/PartIII/ErrorAndExceptionHandling.html
-                // skip exception for now
-                /*
-                throw new DuplicateRedirectException($this->translator->translateById('exception.redirectExists', [
-                    'source' => $redirectUrl,
-                    'newTarget' => $nodeUriPath,
-                    'existingTarget' => $existingRedirect->getTargetUriPath()
-                ], null, null, 'Main', 'ElementareTeilchen.Neos.ExternalRedirect'), 201607051029);
-                */
+                $uriPathsToCreateRedirectFor[] = $uriPath;
             }
         }
 
-        if ($routingForNodeChanged) {
-            $this->flushRoutingCacheForNode($node);
+        if ($uriPathsToCreateRedirectFor === []
+            || $this->createRedirects($uriPathsToCreateRedirectFor, $nodeUriPath) === []
+        ) {
+            return false;
         }
 
-        return $routingForNodeChanged;
+        $this->flushRoutingCacheForNode($node);
+
+        return true;
+    }
+
+
+    /**
+     * @param NodeInterface $node
+     * @param Workspace $targetWorkspace
+     *
+     * @return void
+     */
+    protected function appendNodeToPendingRedirects(NodeInterface $node, Workspace $targetWorkspace) : void
+    {
+        $oldRedirectUrls = '';
+        $targetNodeData = $this->findCorrespondingNodeDataInTargetWorkspace($node, $targetWorkspace);
+        if ($targetNodeData !== null) {
+            try {
+                $oldRedirectUrls = \trim($targetNodeData->getProperty(static::REDIRECT_URLS_PROPERTY));
+            } catch (NodeException $exception) {
+                // if property doesn't exist, it's the same as being empty
+            }
+        }
+        $this->pendingRedirects[] = new PendingRedirect(
+            $node->getContext()->getDimensions(),
+            $node->getIdentifier(),
+            $oldRedirectUrls,
+            $targetWorkspace->getName()
+        );
+    }
+
+    /**
+     * Creates a (relative) URI for the given $nodeContextPath removing the "@workspace-name" from the result
+     *
+     * @param NodeInterface $node
+     *
+     * @return string the resulting (relative) URI
+     */
+    protected function buildUriPathForNode(NodeInterface $node) : string
+    {
+        try {
+            $uri = $this->uriBuilder->uriFor('show', ['node' => $node], 'Frontend\\Node', 'Neos.Neos');
+
+            if (\strpos($uri, './') === 0) {
+                $uri = \substr($uri, 2);
+            } elseif (\strpos($uri, '/') === 0) {
+                $uri = \substr($uri, 1);
+            }
+
+            return $uri;
+        } catch (MissingActionNameException $exception) {
+            // Action name is hardcoded above
+            return '';
+        }
+    }
+
+    /**
+     * @param array<string> $uriPaths
+     * @param string $nodeUriPath
+     * @param array<string> $hosts
+     *
+     * @return array<Redirect>
+     */
+    protected function createRedirects(array $uriPaths, string $nodeUriPath, array $hosts = [null]) : array
+    {
+        $createdRedirects = [];
+        foreach ($uriPaths as $uriPath) {
+            if ($uriPath === '') {
+                continue;
+            }
+
+            $createdRedirects[] = $this->redirectStorage->addRedirect(
+                $uriPath,
+                $nodeUriPath,
+                $this->redirectStatusCode,
+                $hosts
+            );
+        }
+
+        if ($createdRedirects !== []) {
+            $createdRedirects = \array_merge(...$createdRedirects);
+            $this->persistenceManager->persistAll();
+        }
+
+        return $createdRedirects;
+    }
+
+    /**
+     * Returns the NodeData instance with the given identifier from the target workspace.
+     * If no NodeData instance is found in that target workspace, null is returned.
+     *
+     * @param NodeInterface $node The reference node to find a corresponding variant for
+     * @param Workspace $targetWorkspace The target workspace to look in
+     *
+     * @return NodeData|null Either a regular node, a shadow node or null
+     */
+    protected function findCorrespondingNodeDataInTargetWorkspace(
+        NodeInterface $node,
+        Workspace $targetWorkspace
+    ) : ?NodeData {
+        $nodeData = $this->nodeDataRepository->findOneByIdentifier(
+            $node->getIdentifier(),
+            $targetWorkspace,
+            $node->getDimensions(),
+            true
+        );
+        if ($nodeData === null || $nodeData->getWorkspace() !== $targetWorkspace) {
+            return null;
+        }
+        return $nodeData;
+    }
+
+    /**
+     * @param NodeInterface $node
+     *
+     * @return void
+     */
+    protected function flushRoutingCacheForNode(NodeInterface $node) : void
+    {
+        $nodeDataIdentifier = $this->persistenceManager->getIdentifierByObject($node->getNodeData());
+        if ($nodeDataIdentifier !== null) {
+            $this->routerCachingService->flushCachesByTag($nodeDataIdentifier);
+        }
+    }
+
+    /**
+     * @param array<string> $uriPaths
+     * @param string $nodeUriPath
+     * @param array<string> $hosts
+     *
+     * @return int
+     */
+    protected function removeRedirects(array $uriPaths, string $nodeUriPath, array $hosts = [null]) : int
+    {
+        $removedRedirects = 0;
+        foreach ($uriPaths as $uriPath) {
+            foreach ($hosts as $host) {
+                $redirect = $this->redirectStorage->getOneBySourceUriPathAndHost($uriPath, $host);
+                if ($redirect !== null && $redirect->getTargetUriPath() === $nodeUriPath) {
+                    $this->redirectStorage->removeOneBySourceUriPathAndHost($uriPath, $host);
+                    $removedRedirects++;
+                }
+            }
+        }
+        if ($removedRedirects > 0) {
+            $this->persistenceManager->persistAll();
+        }
+        return $removedRedirects;
     }
 }
