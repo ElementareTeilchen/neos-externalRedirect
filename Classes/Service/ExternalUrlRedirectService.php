@@ -201,13 +201,13 @@ class ExternalUrlRedirectService
             if ($node !== null) {
                 $oldUrlPaths = static::splitUrlPathsByWhitespace($pendingRedirect->getOldRedirectUrls());
                 try {
-                    $newUrlPaths = static::splitUrlPathsByWhitespace(
-                        $node->getProperty(static::REDIRECT_URLS_PROPERTY)
-                    );
+                    $newRedirectUrls = $node->getProperty(static::REDIRECT_URLS_PROPERTY);
+                    $newRedirectUrls = $newRedirectUrls === null ? '' : \trim($newRedirectUrls);
                 } catch (NodeException $exception) {
                     // The property not existing is like the property being empty
-                    $newUrlPaths = [];
+                    $newRedirectUrls = '';
                 }
+                $newUrlPaths = static::splitUrlPathsByWhitespace($newRedirectUrls);
                 $hosts = $this->createRedirectForAllHosts
                     ? [null]
                     : static::extractAllHostsFromContentContext($contentContext)
@@ -285,7 +285,8 @@ class ExternalUrlRedirectService
         $targetNodeData = $this->findCorrespondingNodeDataInTargetWorkspace($node, $targetWorkspace);
         if ($targetNodeData !== null) {
             try {
-                $oldRedirectUrls = \trim($targetNodeData->getProperty(static::REDIRECT_URLS_PROPERTY));
+                $oldRedirectUrls = $targetNodeData->getProperty(static::REDIRECT_URLS_PROPERTY);
+                $oldRedirectUrls = $oldRedirectUrls === null ? '' : \trim($oldRedirectUrls);
             } catch (NodeException $exception) {
                 // if property doesn't exist, it's the same as being empty
             }
