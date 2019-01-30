@@ -144,7 +144,7 @@ class ExternalUrlRedirectService
         \array_walk(
             $redirectUrlsArray,
             static function (string &$redirectUrl) {
-                $redirectUrl = \trim(\parse_url(\trim($redirectUrl), PHP_URL_PATH), '/');
+                $redirectUrl = \trim(\parse_url(\trim($redirectUrl), \PHP_URL_PATH), '/');
             }
         );
 
@@ -179,7 +179,7 @@ class ExternalUrlRedirectService
     {
         if (
             $targetWorkspace->isPublicWorkspace() === false
-            || $node->getNodeType()->isOfType(self::REDIRECT_URLS_MIXIN) === false
+            || $node->getNodeType()->isOfType(static::REDIRECT_URLS_MIXIN) === false
         ) {
             return;
         }
@@ -195,7 +195,7 @@ class ExternalUrlRedirectService
     {
         $this->nodeFactory->reset();
         foreach ($this->pendingRedirects as $pendingRedirect) {
-            assert($pendingRedirect instanceof PendingRedirect);
+            \assert($pendingRedirect instanceof PendingRedirect);
             $contentContext = $pendingRedirect->createContentContext();
             $node = $contentContext->getNodeByIdentifier($pendingRedirect->getNodeIdentifier());
             if ($node !== null) {
